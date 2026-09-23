@@ -1,0 +1,13 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
+outputs/
+dist/
+build/
+*.spec
+.idea/
+.vscode/
+~$*
+.DS_Store

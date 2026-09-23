@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm;
+          @bottom-center { content: "research-agent · 来源归一修复与新主题自检报告 · 第 " counter(page) " 页"; font-size: 8.5pt; color: #8a8f98; } }
+  * { box-sizing: border-box; }
+  body { font-family: "Noto Serif CJK SC", "Noto Sans CJK SC", serif; color: #1f2733; font-size: 10.5pt; line-height: 1.7; }
+  h1 { font-size: 20pt; margin: 0 0 2mm; color: #0f2a43; }
+  h2 { font-size: 14pt; margin: 8mm 0 3mm; color: #0f2a43; border-left: 4px solid #2f6f4f; padding-left: 8px; }
+  h3 { font-size: 11.5pt; margin: 5mm 0 2mm; color: #333; }
+  .sub { color: #5b6470; font-size: 10pt; margin-bottom: 4mm; }
+  .meta { background:#f4f6f9; border:1px solid #e2e6ec; border-radius:6px; padding:8px 12px; font-size:9.5pt; color:#3c4653; margin-bottom:6mm; }
+  table { width:100%; border-collapse: collapse; margin:3mm 0; font-size: 9.5pt; }
+  th { background:#0f2a43; color:#fff; padding:5px 8px; text-align:left; font-weight:600; }
+  td { border:1px solid #dde3ea; padding:5px 8px; vertical-align:top; }
+  tr:nth-child(even) td { background:#f7f9fb; }
+  .ok { color:#1a7f37; font-weight:700; }
+  .part{ color:#b56a00; font-weight:700; }
+  .bad { color:#c0392b; font-weight:700; }
+  .box { background:#eef6f2; border:1px solid #cfe6d9; border-left:5px solid #2f6f4f; border-radius:6px; padding:8px 12px; margin:3mm 0; }
+  .warn{ background:#fdf3e7; border:1px solid #f2dcc2; border-left:5px solid #c77b22; border-radius:6px; padding:8px 12px; margin:3mm 0; }
+  .mono { font-family: "DejaVu Sans Mono", monospace; font-size:8.5pt; }
+  .small { font-size: 8.8pt; color:#5b6470; }
+  ul { margin: 2mm 0; padding-left: 6mm; }
+  li { margin: 1.2mm 0; }
+  code { background:#eef1f5; padding:0 3px; border-radius:3px; font-size:9pt; }
+</style>
+</head>
+<body>
+
+<h1>「转载 / 镜像虚假独立来源」修复与新主题自检报告</h1>
+<div class="sub">research-agent · 确定性置信引擎 · 来源身份归一落地</div>
+<div class="meta">范围：不改动 <span class="mono">extract_evidence</span> 核心硬阈值计分；只改“来源身份识别”与观测。
+落地口径：按决策 <b>板①不启用轻改写近重复合并</b>、<b>板②未知主机默认分维持 0.5</b>。
+验证：全量回归 + eval 语料 + 新主题盲测自检。</div>
+
+<h2>一、背景与问题</h2>
+<p>确定性置信计分以“不同来源（URL）”为交叉验证基准。原 <code>_url_key</code> 只返回
+<code>url 去 #fragment</code>：同一份正文被 <b>N 个不同域名转载/镜像</b> 时，会被当成 N 个“独立来源”。
+在 <code>n_total≥3 且无分歧 → high</code> 的规则下，<b>一堆低可信镜像站即可把单一事实刷成 high 置信</b>——这正是“虚假独立来源”漏洞。</p>
+<div class="box">核心论断：真正的交叉验证应数<b>独立编辑来源原点(origin)</b>，而非裸 URL。
+修法是在来源去重/计数这一层做 origin 折叠，<b>完全不动计分阈值</b>。</div>
+
+<h2>二、落地范围与决策口径</h2>
+<table>
+<tr><th>维度</th><th>落地内容</th><th>是否碰核心计分</th></tr>
+<tr><td>URL 归一</td><td><code>_canonical_url</code>：去 #fragment、剔 <code>utm_*/spm</code> 等追踪参数、去 <code>www./m.</code> 前导、查询参数重排</td><td>否</td></tr>
+<tr><td>逐字镜像折叠</td><td><code>_content_fingerprint</code> 精确整段指纹 → 同指纹的跨站正文并为一 origin（<b>零误伤</b>）</td><td>否</td></tr>
+<tr><td>origin 接入</td><td><code>_assign_origins</code> 并查集折叠，<code>doc.origin_id</code> 接入 <code>_extract_claims/_claims_to_buckets</code> 去重计数</td><td>否</td></tr>
+<tr><td>轻改写转载</td><td><b>板①：近重复(n-gram)合并默认不启用</b>，逐字指纹未命中即保持独立来源</td><td>否</td></tr>
+<tr><td>域名可信度</td><td><b>板②：未知主机默认分维持 0.5</b>，不做额外降权</td><td>输入层维持</td></tr>
+<tr><td>观测/调试</td><td><code>origin_groups_debug</code> / <code>evidence_debug</code>：展示谁折叠成谁、collapsed 计数</td><td>纯新增</td></tr>
+<tr><td>回退开关</td><td><code>ANALYZER_ORIGIN_MERGE=0</code> 一键退回“按原始 URL 计数”</td><td>—</td></tr>
+</table>
+
+<div class="warn"><b>决策记录：</b>板①轻改写转载场景本次不启用可信度门控（近重复合并默认关闭），留待观察线上数据再评估是否放开；
+板②未知主机默认分维持 0.5、本次不调整为 0.42。据此实现已收敛为“完整版但仅折叠逐字镜像”。</div>
+
+<h2>三、端到端效果复现（攻击→拦截）</h2>
+<p>用军工新主题通稿构造“6~10 家低可信镜像站逐字转载”的极端攻击：</p>
+<table>
+<tr><th>场景</th><th>修复前</th><th>修复后</th></tr>
+<tr><td>10 篇同通稿原样镜像（不同低可信域名）</td><td class="bad">判 high · n_sources≈10</td><td class="ok">折叠为 1 origin → low · n_sources=1</td></tr>
+<tr><td>逐字镜像组最高可取可信度</td><td>—</td><td>取组内最优代表，不因镜像数量虚高</td></tr>
+<tr><td>独立原创长文（智算新主题）</td><td>—</td><td class="ok">保持独立，不误并</td></tr>
+</table>
+
+<h2>四、评估与回归结果</h2>
+<h3>4.1 既有回归（全部通过）</h3>
+<table>
+<tr><th>测试</th><th>通过/失败</th><th>覆盖</th></tr>
+<tr><td>test_confidence_scoring</td><td class="ok">8 / 0</td><td>置信分级核心（3 独立→high、分歧→medium、同 URL→low 等）</td></tr>
+<tr><td>test_extract_multivalue</td><td class="ok">8 / 0</td><td>P0 一句多值抽取重构</td></tr>
+<tr><td>test_fresh_data</td><td class="ok">14 / 0</td><td>换数据验证（舍入噪声、量纲、真实分歧）</td></tr>
+<tr><td>test_mirror_origins</td><td class="ok">8 / 0</td><td><b>转载/镜像回归</b>（逐字折叠、独立不误并、URL 变体、开关回退）</td></tr>
+<tr><td>test_near_synonyms</td><td class="ok">6 / 0</td><td>P2 近义归一</td></tr>
+<tr><td>test_year_and_recency</td><td class="ok">8 / 0</td><td>P1 年份口径 + 时效</td></tr>
+</table>
+<h3>4.2 eval 跨领域语料（100%）</h3>
+<div class="box">主张级命中 <b>87 / 87</b>　·　句子级全对（含指标与主体）<b>79 / 79</b> —— 抽取/指标引擎无回归。</div>
+
+<h2>五、新主题盲测自检（如实汇报）</h2>
+<p>引入 16 个既有语料与测试<b>均未覆盖</b>的新领域（军工、航天卫星、冷链、宠物经济、数据中心、
+院线票房、医美、露营、跨境电商、特种钢、在线问诊、黄金珠宝、储能出货、运动鞋服、考研、预包装食品），
+对主张抽取做盲测。结果：</p>
+<table>
+<tr><th>指标</th><th>结果</th></tr>
+<tr><td>主张级命中（数值+年份）</td><td class="ok">15 / 16</td></tr>
+<tr><td>句子级全对（+指标名+主体）</td><td class="part">12 / 16</td></tr>
+<tr><td>镜像复验 · 军工 6 家逐字镜像 → 折叠</td><td class="ok">通过（origin=1，low）</td></tr>
+<tr><td>镜像复验 · 智算 3 独立长文 → 不误并</td><td class="ok">通过（origin=3）</td></tr>
+</table>
+<p class="small">备注：上表 15/16 含“数值已抽出但指标名/主体未完全符合我给的期望标签”的情形，
+其中 4 处详见表下——多数为指标归一或主体粒度差异，非漏抽。</p>
+
+<h3>5.1 未命中 / 不一致明细</h3>
+<table>
+<tr><th>句</th><th>期望</th><th>实际</th><th>性质判断</th></tr>
+<tr><td class="small">全国智算中心总算力 2025 年预计超过 300EFLOPS。</td><td>总算力 300EFLOPS</td><td class="bad">未抽到（得空）</td><td class="small">真短板：数字/单位引擎未收录 <b>EFLOPS/TOPS/PFLOP</b> 等英文算力单位，整句漏抽。属<b>既有抽取引擎对新领域的覆盖盲区</b>，与镜像修复无关。</td></tr>
+<tr><td class="small">2024 年国庆档电影总票房约 28 亿元。</td><td>总票房</td><td class="part">抽到 28 亿元，归为“规模”</td><td class="small">指标归一差异：<code>总票房</code>被归一进<code>规模</code>。值对、标签偏宽。</td></tr>
+<tr><td class="small">2024 年黄金珠宝消费额同比增长了 18%。</td><td>黄金珠宝·增长率</td><td class="part">抽到 18%(增长率)，主体为空</td><td class="small">复合适体“黄金珠宝”未切出主体。主体粒度盲区。</td></tr>
+<tr><td class="small">2025 年考研报名人数为 388 万人。</td><td>报名人数 388 万</td><td class="part">抽到 388 万人，归“规模”，主体吞过长</td><td class="small">指标归一 + 主体切分偏粗：<code>报名人数</code>未独立成指标、主体未收窄到“考研”。</td></tr>
+</table>
+<div class="warn"><b>诚实结论：</b>新主题盲测暴露的是<b>既有抽取引擎的普适性边界</b>（英文算力单位未收录、个别量纲词未归一、复合适体切分），
+<b>非本次转载镜像修复引入的回归</b>。镜像/独立源两项复验在新主题下均通过，说明“来源归一”修复对任意主题成立。</div>
+
+<h2>六、局限与后续（如实）</h2>
+<ul>
+<li><b>只拦“逐字”镜像</b>：本轮按板①不启用近重复合并，换词/截断的转载仍会按独立来源计；
+若线上观测到此类刷量，可复用在 <code>_assign_origins</code> 预留处开启 n-gram 近重复 + 可信度门控。</li>
+<li><b>英文算力单位盲区</b>：<code>EFLOPS / TOPS / PFLOP</code> 未入数字正则/单位表，含其的量化主张被漏抽，建议补入 <code>_NUM_RE</code> 与单位解析。</li>
+<li><b>个别量纲/复合适体</b>：<code>总票房/报名人数/黄金珠宝</code>等归一与主体切分偏粗，属指标归一词典/结构切分可扩展点。</li>
+<li><b>主语跨桶</b>：镜像组内不同 copy 可能被切到不同 subject 标签，但来源数已被折叠，不影响防刷。</li>
+</ul>
+
+<div class="box"><b>一句话结论：</b>来源归一方案<b>可行、低侵入、可回退</b>，逐字镜像刷 High 已在多主题下复验为被正确拦截；
+新主题盲测所暴露的是抽取引擎的独立普适性盲区，非镜像修复引入，可另行迭代。</div>
+
+<h2>六·补：真实检索盲测（外部数据验证，不改代码仅统计）</h2>
+<p>为跳出"自己写的规则测自己写的语料"这一自证陷阱，新增一轮<b>真实外部输入盲测</b>：
+输入全部来自搜索引擎对 2026 年行业数据（半导体 / AI芯片 / 新能源车 / 咖啡）的真实返回片段，
+标注仅按<b>原文明写数值</b>核对，测试期间<b>不修改任何引擎代码</b>。</p>
+<table>
+<tr><th>指标</th><th>结果</th><th>解读</th></tr>
+<tr><td>数值召回（原文明写数值被抽出）</td><td class="ok">26 / 31 = 84%</td><td>单句单数值绝大多数能抽准</td></tr>
+<tr><td>数值 + 口径年份双命中</td><td class="part">20 / 31 = 65%</td><td>偏低多为"期望标注的年口径"差异</td></tr>
+<tr><td>真正漏抽</td><td class="part">5 处</td><td>集中于"一句密集多个同质数值"的复合句</td></tr>
+</table>
+<h3>5 处漏抽的共同根因（可复现、机理清晰）</h3>
+<div class="warn"><b>同句密集多同质数值被"就近配对 + 同桶保留最近"挤掉。</b>例如：
+“零售158万辆，新能源约104万辆”漏 <code>104万辆</code>；
+“环比增35%…同比增104%”漏 <code>104%</code>；
+“…下降6.8%和8%”漏 <code>8%</code>。
+因 <code>_sentence_claims</code> 对“同(指标,主体,年份)只保留 dist 最近一条”，
+同一句多个同类数值会互相顶掉。此前自造语料“一句只放一个核心数字”，故未暴露。</div>
+<h3>另记录的噪声/口径（如实）</h3>
+<ul>
+<li><b>月份误抽</b>：“2026年7月…销量41.9万辆”把月份 <code>7</code> 也抽成销量主张——真实文本含“年份+月”且当月无显式销量值时的误判。</li>
+<li><b>单位含噪</b>：“1200亿元人民币”抽出为 <code>1200亿元人</code>（“人”并入单位）——量级词后计数名词处理过宽。</li>
+<li><b>口径年份差异</b>：多数“值对但年未双命中”是标注把“同比/环比”的年份给 None、引擎给具体年，或从句年份归属不同，属口径分歧而非漏抽。</li>
+</ul>
+<div class="box"><b>对本报告结论的修正说明：</b>真实盲测把“自证满分”拉回真实水平——数值抽取对单值句可靠(≈84%)，
+但对<b>真实文本的高密度复合句</b>（一段话塞多个同类数字/率值）有明显漏抽，且存在月份误抽、单位含噪。
+这些都是<b>抽取引擎的普适性短板</b>，与镜像来源归一无关；要继续冲“成熟”，应优先补
+“同句多值各落其桶”与“月份/量词歧义”，并复测真实语料逼近高召回。</div>
+
+</body>
+</html>
