@@ -1,5 +1,7 @@
 # 可信订制报告引擎
 
+[![CI 门禁（30 项）](https://github.com/procon666/reliport/actions/workflows/ci.yml/badge.svg)](https://github.com/procon666/reliport/actions)
+
 > **敢说哪里不确定的报告，才是可信的报告。**
 
 一个面向中文数据主题的**可信研究助手**：规则化抽取数值声明 → 跨来源交叉验证 → 按你自己的口径产出带**证据链下钻**的行业报告。
