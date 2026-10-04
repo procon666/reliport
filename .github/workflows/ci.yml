@@ -1,0 +1,40 @@
+name: CI 门禁（30 项）
+
+# 封板纪律：引擎/测试/标注任何改动后，门禁必须全绿。
+# 本工作流把本地 scripts/ci_gate.sh 原样搬到 GitHub 上跑，判定口径与本地完全一致。
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: 封板门禁 30 项
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          # 与本机开发环境（3.13）保持一致，避免版本差异带来的假红
+          python-version: "3.13"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 预置输出目录
+        run: mkdir -p outputs
+
+      - name: 执行门禁（任一失败即红）
+        run: bash scripts/ci_gate.sh
